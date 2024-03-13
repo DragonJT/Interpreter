@@ -1,7 +1,7 @@
 ﻿
 
 
-enum Opcode{I32Const, F32Const, GetLocal, Op, SetLocal, Call}
+enum Opcode{I32Const, F32Const, GetLocal, Op, SetLocal, CreateLocal, Call}
 class Instruction(Opcode opcode, string value){
     public Opcode opcode = opcode;
     public string value = value;
@@ -35,12 +35,10 @@ class VM(Instruction[] instructions){
                 stack.Push(locals[i.value]);
             }
             else if(i.opcode == Opcode.SetLocal){
-                if(!locals.ContainsKey(i.value)){
-                    locals[i.value] = stack.Pop();
-                }
-                else{
-                    locals.Add(i.value, stack.Pop());
-                }
+                locals[i.value] = stack.Pop();
+            }
+            else if(i.opcode == Opcode.CreateLocal){
+                locals.Add(i.value, stack.Pop());
             }
             else if(i.opcode == Opcode.Call){
                 if(i.value == "Print"){
@@ -218,7 +216,7 @@ static class Parser{
                 }
                 var expr = ParseExpression(tokens[(i+3)..end]);
                 instructions.AddRange(expr);
-                instructions.Add(new Instruction(Opcode.SetLocal, name));
+                instructions.Add(new Instruction(Opcode.CreateLocal, name));
                 i = end+1;
             }
             else{

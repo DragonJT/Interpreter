@@ -1,5 +1,7 @@
 ﻿
-enum Opcode{Get, Op}
+
+
+enum Opcode{I32Const, F32Const, GetLocal, Op, SetLocal}
 class Instruction(Opcode opcode, string value){
     public Opcode opcode = opcode;
     public string value = value;
@@ -16,13 +18,29 @@ class VM(Instruction[] instructions){
     public dynamic Run(){
         var index = 0;
         Stack<dynamic> stack = [];
+        Dictionary<string, dynamic> locals = [];
 
         while(true){
             if(index>=instructions.Length){
                 return stack.Pop();
             }
-            if(instructions[index].opcode == Opcode.Get){
-                stack.Push(int.Parse(instructions[index].value));
+            var i = instructions[index];
+            if(i.opcode == Opcode.I32Const){
+                stack.Push(int.Parse(i.value));
+            }
+            if(i.opcode == Opcode.F32Const){
+                stack.Push(float.Parse(i.value));
+            }
+            else if(i.opcode == Opcode.GetLocal){
+                stack.Push(locals[i.value]);
+            }
+            else if(i.opcode == Opcode.SetLocal){
+                if(!locals.ContainsKey(i.value)){
+                    locals[i.value] = stack.Pop();
+                }
+                else{
+                    locals.Add(i.value, stack.Pop());
+                }
             }
             else if(instructions[index].opcode == Opcode.Op){
                 var right = stack.Pop();
@@ -66,7 +84,7 @@ class Tokenizer(string code)
     }
 
     public void Tokenize(){
-        var punctuation = ";+-*/";
+        var punctuation = ";+-*/=";
         var open = "([{";
         var close = ")]}";
 
@@ -119,7 +137,18 @@ static class Parser{
             if(tokens[0][0] == '('){
                 return ParseExpression(Tokenizer.Tokenize(tokens[0][1..^1]));
             }
-            return [new Instruction(Opcode.Get, tokens[0])];
+            else if(char.IsDigit(tokens[0][0])){
+                if(tokens[0].Contains('.')){
+                    return [new Instruction(Opcode.F32Const, tokens[0])];
+                }
+                return [new Instruction(Opcode.I32Const, tokens[0])];
+            }
+            else if(char.IsLetter(tokens[0][0])){
+                return [new Instruction(Opcode.GetLocal, tokens[0])];
+            }
+            else{
+                throw new Exception("Unexpected token: "+tokens[0]);
+            }
         }
         foreach(var ops in operators){
             var index = tokens.FindLastIndex(t=>ops.Contains(t));
@@ -131,12 +160,36 @@ static class Parser{
         }
         throw new Exception("Unexpected tokens");
     }
+
+    public static Instruction[] Parse(List<string> tokens){
+        List<Instruction> instructions = [];
+        var i = 0;
+        while(true){
+            if(tokens[i] == "var"){
+                var name = tokens[i+1];
+                var end = tokens.IndexOf(";", i+3);
+                if(end<0){
+                    throw new Exception("No end of expression");
+                }
+                var expr = ParseExpression(tokens[(i+3)..end]);
+                instructions.AddRange(expr);
+                instructions.Add(new Instruction(Opcode.SetLocal, name));
+                i = end+1;
+            }
+            else{
+                instructions.AddRange(ParseExpression(tokens[i..]));
+                return [..instructions];
+            }
+        }
+    }
 }
 
 class Program{
     static void Main(){
-        var tokens = Tokenizer.Tokenize("2 * (22 + 5) - 6");
-        var instructions = Parser.ParseExpression(tokens);
+        var tokens = Tokenizer.Tokenize(@"
+        var x = 5 + 5.3;
+        2 * (x - 2) - 6");
+        var instructions = Parser.Parse(tokens);
         var vm = new VM(instructions);
         Console.WriteLine(vm.Run());
     }

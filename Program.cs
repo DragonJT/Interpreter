@@ -21,9 +21,6 @@ class VM(Instruction[] instructions){
         Dictionary<string, dynamic> locals = [];
         Dictionary<string, int> labels = [];
 
-        foreach(var i in instructions){
-            Console.WriteLine(i.ToString());
-        }
         for(var i=0;i<instructions.Length;i++){
             if(instructions[i].opcode == Opcode.Label){
                 labels.Add(instructions[i].value, i);

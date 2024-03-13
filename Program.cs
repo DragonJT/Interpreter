@@ -21,6 +21,9 @@ class VM(Instruction[] instructions){
         Dictionary<string, dynamic> locals = [];
         Dictionary<string, int> labels = [];
 
+        foreach(var i in instructions){
+            Console.WriteLine(i.ToString());
+        }
         for(var i=0;i<instructions.Length;i++){
             if(instructions[i].opcode == Opcode.Label){
                 labels.Add(instructions[i].value, i);
@@ -170,7 +173,9 @@ class Tokenizer(string code)
     }
 }
 
-static class Parser{
+class Parser{
+    List<string> blocks = [];
+    int labelID = 0;
 
     static List<List<string>> SplitByComma(List<string> tokens){
         List<List<string>> output = [];
@@ -230,16 +235,24 @@ static class Parser{
         throw new Exception("Unexpected tokens");
     }
 
-    public static Instruction[] ParseBody(string group){
+    public Instruction[] ParseBody(string group){
         var tokens = Tokenizer.Tokenize(group[1..^1]);
         List<Instruction> instructions = [];
-        var labelID = 0;
         var i = 0;
         while(true){
             if(i>=tokens.Count){
                 return [..instructions];
             }
-            if(tokens[i] == "return"){
+            if(i+1<tokens.Count && tokens[i+1] == "="){
+                var end = tokens.IndexOf(";", i+2);
+                if(end<0){
+                    throw new Exception("No end of expression");
+                }
+                instructions.AddRange(ParseExpression(tokens[(i+2)..end]));
+                instructions.Add(new Instruction(Opcode.SetLocal, tokens[i]));
+                i = end+1;
+            }
+            else if(tokens[i] == "return"){
                 var end = tokens.IndexOf(";", i+1);
                 if(end<0){
                     throw new Exception("No end of expression");
@@ -254,6 +267,25 @@ static class Parser{
                 instructions.AddRange(ParseBody(tokens[i+2]));
                 instructions.Add(new Instruction(Opcode.Label, labelID.ToString()));
                 labelID++;
+                i+=3;
+            }
+            else if(tokens[i] == "break"){
+                instructions.Add(new Instruction(Opcode.Goto, blocks[^1]));
+                i+=2;
+            }
+            else if(tokens[i] == "while"){
+                var startLabelID = labelID.ToString();
+                var endLabelID = (labelID+1).ToString();
+                labelID+=2;
+                instructions.Add(new Instruction(Opcode.Label, startLabelID));
+                instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
+                instructions.Add(new Instruction(Opcode.UnaryOp, "!"));
+                instructions.Add(new Instruction(Opcode.GotoIf, endLabelID));
+                blocks.Add(endLabelID);
+                instructions.AddRange(ParseBody(tokens[i+2]));
+                blocks.RemoveAt(blocks.Count-1);
+                instructions.Add(new Instruction(Opcode.Goto, startLabelID));
+                instructions.Add(new Instruction(Opcode.Label, endLabelID));
                 i+=3;
             }
             else if(tokens[i] == "var"){
@@ -283,15 +315,21 @@ class Program{
     static void Main(){
         var code = @"
         {
-            var x = 5 + 5.3;
-            if(x > 5){
-                Print(x * 2);
-                Print(x * 3);
+            var i = 0;
+            while(i<5){
+                Print(i);
+                i=i+1;
             }
-            return 2 * (x - 2) - 6;
+            while(i<100){
+                Print(i);
+                if(i>10){
+                    break;
+                }
+                i=i+2;
+            }
+            return i;
         }";
-        var instructions = Parser.ParseBody(Tokenizer.Tokenize(code)[0]);
-        Console.WriteLine(instructions.Length);
+        var instructions = new Parser().ParseBody(Tokenizer.Tokenize(code)[0]);
         var vm = new VM(instructions);
         Console.WriteLine(vm.Run());
     }

@@ -6,12 +6,12 @@ class Instruction(Opcode opcode, string value){
 
     public override string ToString()
     {
-        return "("+opcode.ToString() + " "+value+")";
+        return "(" + opcode.ToString() + " " + value + ")";
     }
 }
 
 class VM(Instruction[] instructions){
-    Instruction[] instructions = instructions;
+    readonly Instruction[] instructions = instructions;
 
     public dynamic Run(){
         var index = 0;
@@ -52,26 +52,47 @@ class Tokenizer(string code)
     int index = 0;
     bool split = true;
     int start = 0;
+    int depth = 0;
     public List<string> tokens = [];
 
-    void AddPrevToken(){
-        if(!split){
-            tokens.Add(code[start..index]);
+    void AddPrevToken(int delta = 0){
+        if(depth==0){
+            if(!split){
+                tokens.Add(code[start..(index+delta)]);
+            }
+            split = true;
         }
-        split = true;
+        index+=delta;
     }
 
     public void Tokenize(){
-        var punctuation = "{}();+-*/";
+        var punctuation = ";+-*/";
+        var open = "([{";
+        var close = ")]}";
 
         for(index=0;index<code.Length;index++){
             var c = code[index];
-            if(char.IsWhiteSpace(c)){
+            if(close.Contains(c)){
+                depth--;
+                if(depth<0){
+                    throw new Exception("Depth is < 0");
+                }
+                AddPrevToken(1);
+            }
+            else if(char.IsWhiteSpace(c)){
                 AddPrevToken();
             }
             else if(punctuation.Contains(c)){
                 AddPrevToken();
-                tokens.Add(code.Substring(index, 1));
+                if(depth==0){
+                    tokens.Add(code.Substring(index, 1));
+                }
+            }
+            else if(open.Contains(c)){
+                AddPrevToken();
+                depth++;
+                split = false;
+                start = index;
             }
             else{
                 if(split){
@@ -82,20 +103,29 @@ class Tokenizer(string code)
         }
         AddPrevToken();
     }
+
+    public static List<string> Tokenize(string code){
+        var tokenizer = new Tokenizer(code);
+        tokenizer.Tokenize();
+        return tokenizer.tokens;
+    }
 }
 
 static class Parser{
 
-    public static Instruction[] Parse(List<string> tokens){
+    public static Instruction[] ParseExpression(List<string> tokens){
         var operators = new string[][]{["+", "-"], ["/", "*"]};
         if(tokens.Count == 1){
+            if(tokens[0][0] == '('){
+                return ParseExpression(Tokenizer.Tokenize(tokens[0][1..^1]));
+            }
             return [new Instruction(Opcode.Get, tokens[0])];
         }
         foreach(var ops in operators){
             var index = tokens.FindLastIndex(t=>ops.Contains(t));
             if(index>=0){
-                var left = Parse(tokens[0..index]);
-                var right = Parse(tokens[(index+1)..tokens.Count]);
+                var left = ParseExpression(tokens[0..index]);
+                var right = ParseExpression(tokens[(index+1)..tokens.Count]);
                 return [..left, ..right, new Instruction(Opcode.Op, tokens[index])];
             }
         }
@@ -105,9 +135,8 @@ static class Parser{
 
 class Program{
     static void Main(){
-        var tokenizer = new Tokenizer("2 * 22 + 5");
-        tokenizer.Tokenize();
-        var instructions = Parser.Parse(tokenizer.tokens);
+        var tokens = Tokenizer.Tokenize("2 * (22 + 5) - 6");
+        var instructions = Parser.ParseExpression(tokens);
         var vm = new VM(instructions);
         Console.WriteLine(vm.Run());
     }

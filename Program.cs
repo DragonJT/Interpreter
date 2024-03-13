@@ -1,7 +1,7 @@
 ﻿
 
 
-enum Opcode{I32Const, F32Const, GetLocal, Op, SetLocal, CreateLocal, Call}
+enum Opcode{I32Const, F32Const, GetLocal, BinaryOp, UnaryOp, SetLocal, CreateLocal, Call, GotoIf, Label, Goto}
 class Instruction(Opcode opcode, string value){
     public Opcode opcode = opcode;
     public string value = value;
@@ -19,39 +19,64 @@ class VM(Instruction[] instructions){
         var index = 0;
         Stack<dynamic> stack = [];
         Dictionary<string, dynamic> locals = [];
+        Dictionary<string, int> labels = [];
 
+        for(var i=0;i<instructions.Length;i++){
+            if(instructions[i].opcode == Opcode.Label){
+                labels.Add(instructions[i].value, i);
+            }
+        }
         while(true){
             if(index>=instructions.Length){
                 return stack.Pop();
             }
-            var i = instructions[index];
-            if(i.opcode == Opcode.I32Const){
-                stack.Push(int.Parse(i.value));
+            var instr = instructions[index];
+            if(instr.opcode == Opcode.Label){}
+            else if(instr.opcode == Opcode.GotoIf){
+                if(stack.Pop()){
+                    index = labels[instr.value];
+                }
             }
-            if(i.opcode == Opcode.F32Const){
-                stack.Push(float.Parse(i.value));
+            else if(instr.opcode == Opcode.Goto){
+                index = labels[instr.value];
             }
-            else if(i.opcode == Opcode.GetLocal){
-                stack.Push(locals[i.value]);
+            else if(instr.opcode == Opcode.I32Const){
+                stack.Push(int.Parse(instr.value));
             }
-            else if(i.opcode == Opcode.SetLocal){
-                locals[i.value] = stack.Pop();
+            if(instr.opcode == Opcode.F32Const){
+                stack.Push(float.Parse(instr.value));
             }
-            else if(i.opcode == Opcode.CreateLocal){
-                locals.Add(i.value, stack.Pop());
+            else if(instr.opcode == Opcode.GetLocal){
+                stack.Push(locals[instr.value]);
             }
-            else if(i.opcode == Opcode.Call){
-                if(i.value == "Print"){
+            else if(instr.opcode == Opcode.SetLocal){
+                locals[instr.value] = stack.Pop();
+            }
+            else if(instr.opcode == Opcode.CreateLocal){
+                locals.Add(instr.value, stack.Pop());
+            }
+            else if(instr.opcode == Opcode.Call){
+                if(instr.value == "Print"){
                     Console.WriteLine(stack.Pop());
                 }
                 else{
                     throw new Exception("Unexpected function");
                 }
             }
-            else if(i.opcode == Opcode.Op){
+            else if(instr.opcode == Opcode.UnaryOp){
+                var value = stack.Pop();
+                var op = instr.value;
+                if(op == "!"){
+                    stack.Push(!value);
+                }
+                else{
+                    throw new Exception("Unexpected UnaryOp: "+op);
+                }
+            }
+            else if(instr.opcode == Opcode.BinaryOp){
                 var right = stack.Pop();
                 var left = stack.Pop();
-                var op = i.value;
+                var op = instr.value;
                 if(op=="+"){
                     stack.Push(left+right);
                 }
@@ -63,6 +88,15 @@ class VM(Instruction[] instructions){
                 }
                 else if(op=="/"){
                     stack.Push(left/right);
+                }
+                else if(op=="<"){
+                    stack.Push(left<right);
+                }
+                else if(op==">"){
+                    stack.Push(left>right);
+                }
+                else{
+                    throw new Exception("Unexpected BinaryOp: "+op);
                 }
             }
             index++;
@@ -89,7 +123,7 @@ class Tokenizer(string code)
     }
 
     public void Tokenize(){
-        var punctuation = ";+-*/=";
+        var punctuation = ";+-*/=<>";
         var open = "([{";
         var close = ")]}";
 
@@ -113,9 +147,11 @@ class Tokenizer(string code)
             }
             else if(open.Contains(c)){
                 AddPrevToken();
+                if(depth==0){
+                    split = false;
+                    start = index;
+                }
                 depth++;
-                split = false;
-                start = index;
             }
             else{
                 if(split){
@@ -151,14 +187,18 @@ static class Parser{
         return output;
     }
 
+    static Instruction[] ParseExpressionInParens(string group){
+        return ParseExpression(Tokenizer.Tokenize(group[1..^1]));
+    }
+
     public static Instruction[] ParseExpression(List<string> tokens){
-        var operators = new string[][]{["+", "-"], ["/", "*"]};
+        var operators = new string[][]{["<", ">"], ["+", "-"], ["/", "*"]};
         if(tokens.Count == 0){
             throw new Exception("No tokens");
         }
         else if(tokens.Count == 1){
             if(tokens[0][0] == '('){
-                return ParseExpression(Tokenizer.Tokenize(tokens[0][1..^1]));
+                return ParseExpressionInParens(tokens[0]);
             }
             else if(char.IsDigit(tokens[0][0])){
                 if(tokens[0].Contains('.')){
@@ -184,17 +224,16 @@ static class Parser{
             if(index>=0){
                 var left = ParseExpression(tokens[0..index]);
                 var right = ParseExpression(tokens[(index+1)..tokens.Count]);
-                return [..left, ..right, new Instruction(Opcode.Op, tokens[index])];
+                return [..left, ..right, new Instruction(Opcode.BinaryOp, tokens[index])];
             }
-        }
-        foreach(var t in tokens){
-            Console.WriteLine(t);
         }
         throw new Exception("Unexpected tokens");
     }
 
-    public static Instruction[] Parse(List<string> tokens){
+    public static Instruction[] ParseBody(string group){
+        var tokens = Tokenizer.Tokenize(group[1..^1]);
         List<Instruction> instructions = [];
+        var labelID = 0;
         var i = 0;
         while(true){
             if(i>=tokens.Count){
@@ -207,6 +246,15 @@ static class Parser{
                 }
                 instructions.AddRange(ParseExpression(tokens[(i+1)..end]));
                 i = end+1;
+            }
+            else if(tokens[i] == "if"){
+                instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
+                instructions.Add(new Instruction(Opcode.UnaryOp, "!"));
+                instructions.Add(new Instruction(Opcode.GotoIf, labelID.ToString()));
+                instructions.AddRange(ParseBody(tokens[i+2]));
+                instructions.Add(new Instruction(Opcode.Label, labelID.ToString()));
+                labelID++;
+                i+=3;
             }
             else if(tokens[i] == "var"){
                 var name = tokens[i+1];
@@ -233,12 +281,17 @@ static class Parser{
 
 class Program{
     static void Main(){
-        var tokens = Tokenizer.Tokenize(@"
-        var x = 5 + 5.3;
-        Print(x * 2);
-        Print(x * 3);
-        return 2 * (x - 2) - 6;");
-        var instructions = Parser.Parse(tokens);
+        var code = @"
+        {
+            var x = 5 + 5.3;
+            if(x > 5){
+                Print(x * 2);
+                Print(x * 3);
+            }
+            return 2 * (x - 2) - 6;
+        }";
+        var instructions = Parser.ParseBody(Tokenizer.Tokenize(code)[0]);
+        Console.WriteLine(instructions.Length);
         var vm = new VM(instructions);
         Console.WriteLine(vm.Run());
     }

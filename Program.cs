@@ -1,9 +1,11 @@
 ﻿
 
 
-enum Opcode{I32Const, F32Const, GetLocal, BinaryOp, UnaryOp, SetLocal, CreateLocal, Call, GotoIf, Label, Goto}
-class Instruction(Opcode opcode, string value){
-    public Opcode opcode = opcode;
+using System.Diagnostics;
+
+enum JOpcode{I32Const, F32Const, GetLocal, BinaryOp, UnaryOp, SetLocal, CreateLocal, Call, GotoIf, Label, Goto}
+class Instruction(JOpcode opcode, string value){
+    public JOpcode opcode = opcode;
     public string value = value;
 
     public override string ToString()
@@ -22,7 +24,7 @@ class VM(Instruction[] instructions){
         Dictionary<string, int> labels = [];
 
         for(var i=0;i<instructions.Length;i++){
-            if(instructions[i].opcode == Opcode.Label){
+            if(instructions[i].opcode == JOpcode.Label){
                 labels.Add(instructions[i].value, i);
             }
         }
@@ -31,31 +33,31 @@ class VM(Instruction[] instructions){
                 return stack.Pop();
             }
             var instr = instructions[index];
-            if(instr.opcode == Opcode.Label){}
-            else if(instr.opcode == Opcode.GotoIf){
+            if(instr.opcode == JOpcode.Label){}
+            else if(instr.opcode == JOpcode.GotoIf){
                 if(stack.Pop()){
                     index = labels[instr.value];
                 }
             }
-            else if(instr.opcode == Opcode.Goto){
+            else if(instr.opcode == JOpcode.Goto){
                 index = labels[instr.value];
             }
-            else if(instr.opcode == Opcode.I32Const){
+            else if(instr.opcode == JOpcode.I32Const){
                 stack.Push(int.Parse(instr.value));
             }
-            if(instr.opcode == Opcode.F32Const){
+            if(instr.opcode == JOpcode.F32Const){
                 stack.Push(float.Parse(instr.value));
             }
-            else if(instr.opcode == Opcode.GetLocal){
+            else if(instr.opcode == JOpcode.GetLocal){
                 stack.Push(locals[instr.value]);
             }
-            else if(instr.opcode == Opcode.SetLocal){
+            else if(instr.opcode == JOpcode.SetLocal){
                 locals[instr.value] = stack.Pop();
             }
-            else if(instr.opcode == Opcode.CreateLocal){
+            else if(instr.opcode == JOpcode.CreateLocal){
                 locals.Add(instr.value, stack.Pop());
             }
-            else if(instr.opcode == Opcode.Call){
+            else if(instr.opcode == JOpcode.Call){
                 if(instr.value == "Print"){
                     Console.WriteLine(stack.Pop());
                 }
@@ -63,7 +65,7 @@ class VM(Instruction[] instructions){
                     throw new Exception("Unexpected function");
                 }
             }
-            else if(instr.opcode == Opcode.UnaryOp){
+            else if(instr.opcode == JOpcode.UnaryOp){
                 var value = stack.Pop();
                 var op = instr.value;
                 if(op == "!"){
@@ -73,7 +75,7 @@ class VM(Instruction[] instructions){
                     throw new Exception("Unexpected UnaryOp: "+op);
                 }
             }
-            else if(instr.opcode == Opcode.BinaryOp){
+            else if(instr.opcode == JOpcode.BinaryOp){
                 var right = stack.Pop();
                 var left = stack.Pop();
                 var op = instr.value;
@@ -204,12 +206,12 @@ class Parser{
             }
             else if(char.IsDigit(tokens[0][0])){
                 if(tokens[0].Contains('.')){
-                    return [new Instruction(Opcode.F32Const, tokens[0])];
+                    return [new Instruction(JOpcode.F32Const, tokens[0])];
                 }
-                return [new Instruction(Opcode.I32Const, tokens[0])];
+                return [new Instruction(JOpcode.I32Const, tokens[0])];
             }
             else if(char.IsLetter(tokens[0][0])){
-                return [new Instruction(Opcode.GetLocal, tokens[0])];
+                return [new Instruction(JOpcode.GetLocal, tokens[0])];
             }
             else{
                 throw new Exception("Unexpected token: "+tokens[0]);
@@ -218,7 +220,7 @@ class Parser{
         else if(tokens.Count == 2){
             if(char.IsLetter(tokens[0][0]) && tokens[1][0] == '('){
                 var args = SplitByComma(Tokenizer.Tokenize(tokens[1][1..^1])).Select(ParseExpression).ToArray();
-                return [.. args.SelectMany(a=>a).ToArray(), new Instruction(Opcode.Call, tokens[0])];
+                return [.. args.SelectMany(a=>a).ToArray(), new Instruction(JOpcode.Call, tokens[0])];
             }
         }
         foreach(var ops in operators){
@@ -226,7 +228,7 @@ class Parser{
             if(index>=0){
                 var left = ParseExpression(tokens[0..index]);
                 var right = ParseExpression(tokens[(index+1)..tokens.Count]);
-                return [..left, ..right, new Instruction(Opcode.BinaryOp, tokens[index])];
+                return [..left, ..right, new Instruction(JOpcode.BinaryOp, tokens[index])];
             }
         }
         throw new Exception("Unexpected tokens");
@@ -246,7 +248,7 @@ class Parser{
                     throw new Exception("No end of expression");
                 }
                 instructions.AddRange(ParseExpression(tokens[(i+2)..end]));
-                instructions.Add(new Instruction(Opcode.SetLocal, tokens[i]));
+                instructions.Add(new Instruction(JOpcode.SetLocal, tokens[i]));
                 i = end+1;
             }
             else if(tokens[i] == "return"){
@@ -259,30 +261,30 @@ class Parser{
             }
             else if(tokens[i] == "if"){
                 instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
-                instructions.Add(new Instruction(Opcode.UnaryOp, "!"));
-                instructions.Add(new Instruction(Opcode.GotoIf, labelID.ToString()));
+                instructions.Add(new Instruction(JOpcode.UnaryOp, "!"));
+                instructions.Add(new Instruction(JOpcode.GotoIf, labelID.ToString()));
                 instructions.AddRange(ParseBody(tokens[i+2]));
-                instructions.Add(new Instruction(Opcode.Label, labelID.ToString()));
+                instructions.Add(new Instruction(JOpcode.Label, labelID.ToString()));
                 labelID++;
                 i+=3;
             }
             else if(tokens[i] == "break"){
-                instructions.Add(new Instruction(Opcode.Goto, blocks[^1]));
+                instructions.Add(new Instruction(JOpcode.Goto, blocks[^1]));
                 i+=2;
             }
             else if(tokens[i] == "while"){
                 var startLabelID = labelID.ToString();
                 var endLabelID = (labelID+1).ToString();
                 labelID+=2;
-                instructions.Add(new Instruction(Opcode.Label, startLabelID));
+                instructions.Add(new Instruction(JOpcode.Label, startLabelID));
                 instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
-                instructions.Add(new Instruction(Opcode.UnaryOp, "!"));
-                instructions.Add(new Instruction(Opcode.GotoIf, endLabelID));
+                instructions.Add(new Instruction(JOpcode.UnaryOp, "!"));
+                instructions.Add(new Instruction(JOpcode.GotoIf, endLabelID));
                 blocks.Add(endLabelID);
                 instructions.AddRange(ParseBody(tokens[i+2]));
                 blocks.RemoveAt(blocks.Count-1);
-                instructions.Add(new Instruction(Opcode.Goto, startLabelID));
-                instructions.Add(new Instruction(Opcode.Label, endLabelID));
+                instructions.Add(new Instruction(JOpcode.Goto, startLabelID));
+                instructions.Add(new Instruction(JOpcode.Label, endLabelID));
                 i+=3;
             }
             else if(tokens[i] == "var"){
@@ -293,7 +295,7 @@ class Parser{
                 }
                 var expr = ParseExpression(tokens[(i+3)..end]);
                 instructions.AddRange(expr);
-                instructions.Add(new Instruction(Opcode.CreateLocal, name));
+                instructions.Add(new Instruction(JOpcode.CreateLocal, name));
                 i = end+1;
             }
             else{
@@ -309,6 +311,7 @@ class Parser{
 }
 
 class Program{
+
     static void Main(){
         var code = @"
         {
@@ -329,5 +332,7 @@ class Program{
         var instructions = new Parser().ParseBody(Tokenizer.Tokenize(code)[0]);
         var vm = new VM(instructions);
         Console.WriteLine(vm.Run());
+        EmitIL.Emit();
+        Process.Start("HelloWorld.exe");
     }
 }

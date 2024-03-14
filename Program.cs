@@ -1,8 +1,6 @@
 ﻿
 
 
-using System.Diagnostics;
-
 enum JOpcode{I32Const, F32Const, GetLocal, BinaryOp, UnaryOp, SetLocal, CreateLocal, Call, GotoIf, Label, Goto}
 class Instruction(JOpcode opcode, string value){
     public JOpcode opcode = opcode;
@@ -14,14 +12,29 @@ class Instruction(JOpcode opcode, string value){
     }
 }
 
-class VM(Instruction[] instructions){
-    readonly Instruction[] instructions = instructions;
+class Parameter(string type, string name){
+    public string type = type;
+    public string name = name;
+}
 
-    public dynamic Run(){
+class Function(string returnType, string name, Parameter[] parameters, Instruction[] instructions){
+    public readonly string returnType = returnType;
+    public readonly string name = name;
+    public readonly Parameter[] parameters = parameters;
+    public readonly Instruction[] instructions = instructions;
+
+    public dynamic Invoke(VM vm, params dynamic[] args){
         var index = 0;
         Stack<dynamic> stack = [];
         Dictionary<string, dynamic> locals = [];
         Dictionary<string, int> labels = [];
+
+        if(parameters.Length != args.Length){
+            throw new Exception("Wrong number of args");
+        }
+        for(var i=0;i<parameters.Length;i++){
+            locals.Add(parameters[i].name, args[i]);
+        }
 
         for(var i=0;i<instructions.Length;i++){
             if(instructions[i].opcode == JOpcode.Label){
@@ -62,7 +75,16 @@ class VM(Instruction[] instructions){
                     Console.WriteLine(stack.Pop());
                 }
                 else{
-                    throw new Exception("Unexpected function");
+                    var function = vm.GetFunction(instr.value) ?? throw new Exception("Unexpected function: "+instr.value);
+                    var plength = function.parameters.Length;
+                    var fargs = new dynamic[plength];
+                    for(var i=plength-1;i>=0;i--){
+                        fargs[i] = stack.Pop();
+                    }
+                    var returnValue = function.Invoke(vm, fargs);
+                    if(function.returnType!="void"){
+                        stack.Push(returnValue);
+                    }
                 }
             }
             else if(instr.opcode == JOpcode.UnaryOp){
@@ -103,6 +125,21 @@ class VM(Instruction[] instructions){
             }
             index++;
         }
+    }
+}
+
+class VM{
+    public Dictionary<string, Function> functions = [];
+
+    public void Add(Function function){
+        functions.Add(function.name, function);
+    }
+
+    public Function? GetFunction(string name){
+        if(functions.TryGetValue(name, out Function? function)){
+            return function;
+        }
+        return null;
     }
 }
 
@@ -172,10 +209,7 @@ class Tokenizer(string code)
     }
 }
 
-class Parser{
-    List<string> blocks = [];
-    int labelID = 0;
-
+static class Parser{
     static List<List<string>> SplitByComma(List<string> tokens){
         List<List<string>> output = [];
         var start = 0;
@@ -191,8 +225,8 @@ class Parser{
         return output;
     }
 
-    static Instruction[] ParseExpressionInParens(string group){
-        return ParseExpression(Tokenizer.Tokenize(group[1..^1]));
+    static Instruction[] ParseExpressionInParens(string code){
+        return ParseExpression(Tokenizer.Tokenize(code[1..^1]));
     }
 
     public static Instruction[] ParseExpression(List<string> tokens){
@@ -234,8 +268,8 @@ class Parser{
         throw new Exception("Unexpected tokens");
     }
 
-    public Instruction[] ParseBody(string group){
-        var tokens = Tokenizer.Tokenize(group[1..^1]);
+    static Instruction[] ParseBody(string code, List<string> blocks, ref int labelID){
+        var tokens = Tokenizer.Tokenize(code[1..^1]);
         List<Instruction> instructions = [];
         var i = 0;
         while(true){
@@ -263,7 +297,7 @@ class Parser{
                 instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
                 instructions.Add(new Instruction(JOpcode.UnaryOp, "!"));
                 instructions.Add(new Instruction(JOpcode.GotoIf, labelID.ToString()));
-                instructions.AddRange(ParseBody(tokens[i+2]));
+                instructions.AddRange(ParseBody(tokens[i+2], blocks, ref labelID));
                 instructions.Add(new Instruction(JOpcode.Label, labelID.ToString()));
                 labelID++;
                 i+=3;
@@ -281,7 +315,7 @@ class Parser{
                 instructions.Add(new Instruction(JOpcode.UnaryOp, "!"));
                 instructions.Add(new Instruction(JOpcode.GotoIf, endLabelID));
                 blocks.Add(endLabelID);
-                instructions.AddRange(ParseBody(tokens[i+2]));
+                instructions.AddRange(ParseBody(tokens[i+2], blocks, ref labelID));
                 blocks.RemoveAt(blocks.Count-1);
                 instructions.Add(new Instruction(JOpcode.Goto, startLabelID));
                 instructions.Add(new Instruction(JOpcode.Label, endLabelID));
@@ -308,18 +342,41 @@ class Parser{
             }
         }
     }
+
+    static Instruction[] ParseBody(string code){
+        List<string> blocks = [];
+        int labelID = 0;
+        return ParseBody(code, blocks, ref labelID);
+    }
+
+    static Parameter[] ParseParameters(string code){
+        var parameterTokens = SplitByComma(Tokenizer.Tokenize(code[1..^1]));
+        return parameterTokens.Select(p=>new Parameter(p[0], p[1])).ToArray();
+    }
+
+    public static Function[] ParseFunctions(string code){
+        var tokens = Tokenizer.Tokenize(code);
+        List<Function> functions = [];
+        var i = 0;
+        while(true){
+            if(i>=tokens.Count){
+                return [..functions];
+            }
+            var returnType = tokens[i];
+            var name = tokens[i+1];
+            var parameters = ParseParameters(tokens[i+2]);
+            var body = ParseBody(tokens[i+3]);
+            functions.Add(new Function(returnType, name, parameters, body));
+            i+=4;
+        }
+    }
 }
 
 class Program{
 
     static void Main(){
         var code = @"
-        {
-            var i = 0;
-            while(i<5){
-                Print(i);
-                i=i+1;
-            }
+        int Test(int i){
             while(i<100){
                 Print(i);
                 if(i>10){
@@ -328,11 +385,22 @@ class Program{
                 i=i+2;
             }
             return i;
+        }
+
+        void Main(){
+            var i = 0;
+            while(i<5){
+                Print(i);
+                i=i+1;
+            }
+            var j = Test(i);
+            return j;
         }";
-        var instructions = new Parser().ParseBody(Tokenizer.Tokenize(code)[0]);
-        var vm = new VM(instructions);
-        Console.WriteLine(vm.Run());
-        EmitIL.Emit();
-        Process.Start("HelloWorld.exe");
+        var functions = Parser.ParseFunctions(code);
+        var vm = new VM();
+        foreach(var f in functions){
+            vm.Add(f);
+        }
+        Console.WriteLine(vm.GetFunction("Main")!.Invoke(vm));
     }
 }

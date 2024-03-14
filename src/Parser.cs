@@ -1,4 +1,5 @@
 
+
 static class Parser{
     static List<List<Token>> SplitByComma(List<Token> tokens){
         List<List<Token>> output = [];
@@ -61,10 +62,13 @@ static class Parser{
                 return [..left, ..right, new Instruction(JOpcode.BinaryOp, tokens[index].value)];
             }
         }
+        foreach(var t in tokens){
+            Console.WriteLine(t.value);
+        }
         throw new Exception("Unexpected tokens");
     }
 
-    static Instruction[] ParseBody(string code, List<string> blocks, ref int labelID){
+    static Instruction[] ParseBody(string code){
         var tokens = Tokenizer.Tokenize(code);
         List<Instruction> instructions = [];
         var i = 0;
@@ -89,32 +93,17 @@ static class Parser{
                 instructions.AddRange(ParseExpression(tokens[(i+1)..end]));
                 i = end+1;
             }
-            else if(tokens[i].value == "if"){
-                instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
-                instructions.Add(new Instruction(JOpcode.UnaryOp, "!"));
-                instructions.Add(new Instruction(JOpcode.GotoIf, labelID.ToString()));
-                instructions.AddRange(ParseBody(tokens[i+2].value, blocks, ref labelID));
-                instructions.Add(new Instruction(JOpcode.Label, labelID.ToString()));
-                labelID++;
-                i+=3;
-            }
-            else if(tokens[i].value == "break"){
-                instructions.Add(new Instruction(JOpcode.Goto, blocks[^1]));
+            else if(tokens[i+1].value == ":"){
+                instructions.Add(new Instruction(JOpcode.Label, tokens[i].value));
                 i+=2;
             }
-            else if(tokens[i] .value== "while"){
-                var startLabelID = labelID.ToString();
-                var endLabelID = (labelID+1).ToString();
-                labelID+=2;
-                instructions.Add(new Instruction(JOpcode.Label, startLabelID));
+            else if(tokens[i].value == "goto_if"){
                 instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
-                instructions.Add(new Instruction(JOpcode.UnaryOp, "!"));
-                instructions.Add(new Instruction(JOpcode.GotoIf, endLabelID));
-                blocks.Add(endLabelID);
-                instructions.AddRange(ParseBody(tokens[i+2].value, blocks, ref labelID));
-                blocks.RemoveAt(blocks.Count-1);
-                instructions.Add(new Instruction(JOpcode.Goto, startLabelID));
-                instructions.Add(new Instruction(JOpcode.Label, endLabelID));
+                instructions.Add(new Instruction(JOpcode.GotoIf, tokens[i+2].value));
+                i+=4;
+            }
+            else if(tokens[i].value == "goto"){
+                instructions.Add(new Instruction(JOpcode.Goto, tokens[i+1].value));
                 i+=3;
             }
             else if(tokens[i].value == "var"){
@@ -137,12 +126,6 @@ static class Parser{
                 i = end+1;
             }
         }
-    }
-
-    static Instruction[] ParseBody(string code){
-        List<string> blocks = [];
-        int labelID = 0;
-        return ParseBody(code, blocks, ref labelID);
     }
 
     static Parameter[] ParseParameters(string code){

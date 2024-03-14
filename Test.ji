@@ -1,22 +1,11 @@
-int Test(int i){
-    while(i<100){
-        Print(i);
-        if(i>10){
-            break;
-        }
-        i=i+2;
-    }
-    return i;
-}
 
-void Main(){
-    var i = 0;
-    var hello = "Hello ";
-    Print(hello + "Worl" + 'd');
-    while(i<5){
-        Print(i);
-        i=i+1;
-    }
-    var j = Test(i);
-    return j;
+int Main(){
+    var i=0;
+    goto_if (i>10) end;
+    Print("HelloWorld");
+    end:
+    goto_if (i<10) end2;
+    Print("Boo");
+    end2:
+    return 0;
 }

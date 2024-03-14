@@ -23,7 +23,7 @@ static class Tokenizer{
             index++;
             goto loop;
         }
-        if(char.IsLetter(c)){
+        if(char.IsLetter(c) || c=='_'){
             var start = index;
             index++;
             while(true){
@@ -32,7 +32,7 @@ static class Tokenizer{
                     return tokens;
                 }
                 c = code[index];
-                if(char.IsLetter(c) || char.IsDigit(c)){
+                if(char.IsLetter(c) || c=='_' || char.IsDigit(c)){
                     index++;
                     continue;
                 }

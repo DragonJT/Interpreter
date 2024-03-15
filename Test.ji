@@ -5,10 +5,10 @@ void if(bool condition, Delegate body){
     end:
 }
 
-void loop(int length, Delegate body){
+void loop(DelegateParameter p, int length, Delegate body){
     var i=0;
     start:
-    body();
+    body(i);
     i=i+1;
     goto_if (i<length) start;
 }
@@ -21,10 +21,8 @@ int Main(){
     if(i<10){
         Print("MOO");
     }
-    var j=0;
-    loop(5){
+    loop(j, 5){
         Print(j);
-        j=j+1;
     }
     0
 }

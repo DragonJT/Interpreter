@@ -63,19 +63,32 @@ class Parser{
         }
         else if(tokens.Count == 3){
             if(tokens[0].type == TokenType.Varname && tokens[1].type == TokenType.Parens && tokens[2].type == TokenType.Curly){
-                var args = SplitByComma(Tokenizer.Tokenize(tokens[1].value)).Select(ParseExpression).ToArray();
-                var funcName = "__Anonymous__"+anonymousFunctionID;
-                anonymousFunctionID++;
+                var argTokens = SplitByComma(Tokenizer.Tokenize(tokens[1].value));
+                var callFunc = GetFunction(tokens[0].value);
+                if(callFunc!=null){
+                    List<Variable> parameters = [];
+                    for(int i=0;i<callFunc.parameters.Length;i++){
+                        if(callFunc.parameters[i].type == "DelegateParameter"){
+                            parameters.Add(new Variable("Unknown", argTokens[i][0].value));
+                            argTokens[i] = [new Token("0", 0, 0, TokenType.Int)];
+                        }
+                    }
+                    var args = argTokens.Select(ParseExpression).ToArray();
+                    var anonymousFunc = "__Anonymous__"+anonymousFunctionID;
+                    anonymousFunctionID++;
+                    
+                    var current = new Function(functionStack.Peek(), "void", anonymousFunc, [..parameters]);
 
-                var current = new Function(functionStack.Peek(), "void", funcName, []);
-                functionStack.Push(current);
-                current.instructions.AddRange(ParseBody(tokens[2].value));
-                functionStack.Pop();
-                functions.Add(current);
+                    functionStack.Push(current);
+                    current.instructions.AddRange(ParseBody(tokens[2].value));
+                    functionStack.Pop();
+                    functions.Add(current);
+
+                    return [.. args.SelectMany(a=>a), 
+                        new Instruction(JOpcode.Delegate, anonymousFunc), 
+                        new Instruction(JOpcode.Call, tokens[0].value)];
+                }
                 
-                return [.. args.SelectMany(a=>a), 
-                    new Instruction(JOpcode.Delegate, funcName), 
-                    new Instruction(JOpcode.Call, tokens[0].value)];
             }
         }
         foreach(var ops in operators){
@@ -178,5 +191,7 @@ class Parser{
         }
     }
 
-    
+    Function? GetFunction(string name){
+        return functions.FirstOrDefault(f=>f.name==name);
+    }
 }

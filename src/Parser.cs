@@ -1,6 +1,7 @@
 
 
 class Parser{
+    Stack<Function> functionStack = [];
     public List<Function> functions = [];
     public int anonymousFunctionID = 0;
 
@@ -65,7 +66,13 @@ class Parser{
                 var args = SplitByComma(Tokenizer.Tokenize(tokens[1].value)).Select(ParseExpression).ToArray();
                 var funcName = "__Anonymous__"+anonymousFunctionID;
                 anonymousFunctionID++;
-                functions.Add(new Function("void", funcName, [], ParseBody(tokens[2].value)));
+
+                var current = new Function(functionStack.Peek(), "void", funcName, []);
+                functionStack.Push(current);
+                current.instructions.AddRange(ParseBody(tokens[2].value));
+                functionStack.Pop();
+                functions.Add(current);
+                
                 return [.. args.SelectMany(a=>a), 
                     new Instruction(JOpcode.Delegate, funcName), 
                     new Instruction(JOpcode.Call, tokens[0].value)];
@@ -145,9 +152,9 @@ class Parser{
         }
     }
 
-    static Parameter[] ParseParameters(string code){
+    static Variable[] ParseParameters(string code){
         var parameterTokens = SplitByComma(Tokenizer.Tokenize(code));
-        return parameterTokens.Select(p=>new Parameter(p[0].value, p[1].value)).ToArray();
+        return parameterTokens.Select(p=>new Variable(p[0].value, p[1].value)).ToArray();
     }
 
     public Parser(string code){
@@ -160,13 +167,16 @@ class Parser{
             var returnType = tokens[i];
             var name = tokens[i+1];
             var parameters = ParseParameters(tokens[i+2].value);
-            var body = ParseBody(tokens[i+3].value);
-            functions.Add(new Function(returnType.value, name.value, parameters, body));
+
+            var current = new Function(null, returnType.value, name.value, parameters);
+            functionStack.Push(current);
+            current.instructions.AddRange(ParseBody(tokens[i+3].value));
+            functionStack.Pop();
+
+            functions.Add(current);
             i+=4;
         }
     }
 
-    public Function? GetFunction(string name){
-        return functions.FirstOrDefault(f=> f.name== name);
-    }
+    
 }

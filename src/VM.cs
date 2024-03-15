@@ -6,43 +6,97 @@ class Instruction(JOpcode opcode, string value){
     public JOpcode opcode = opcode;
     public string value = value;
 
-    public override string ToString()
-    {
+    public override string ToString(){
         return "(" + opcode.ToString() + " " + value + ")";
     }
 }
 
-class Parameter(string type, string name){
+class Variable(string type, string name){
     public string type = type;
     public string name = name;
 }
 
-class Function(string returnType, string name, Parameter[] parameters, Instruction[] instructions){
+class Function(Function? parent, string returnType, string name, Variable[] parameters){
+    public readonly Function? parent = parent;
     public readonly string returnType = returnType;
     public readonly string name = name;
-    public readonly Parameter[] parameters = parameters;
-    public readonly Instruction[] instructions = instructions;
+    public readonly Variable[] parameters = parameters;
+    public List<Instruction> instructions = [];
+    List<Variable> locals = [];
+    Dictionary<string, int> labels = [];
+    Stack<Dictionary<string, dynamic?>> localStack = [];
 
-    public dynamic? Invoke(Parser parser, params dynamic[] args){
-        var index = 0;
-        Stack<dynamic> stack = [];
-        Dictionary<string, dynamic> locals = [];
-        Dictionary<string, int> labels = [];
-
-        if(parameters.Length != args.Length){
-            throw new Exception("Wrong number of args");
-        }
-        for(var i=0;i<parameters.Length;i++){
-            locals.Add(parameters[i].name, args[i]);
-        }
-
-        for(var i=0;i<instructions.Length;i++){
+    public void Compile(){
+        for(var i=0;i<instructions.Count;i++){
             if(instructions[i].opcode == JOpcode.Label){
                 labels.Add(instructions[i].value, i);
             }
         }
+        foreach(var i in instructions){
+            if(i.opcode == JOpcode.CreateLocal){
+                locals.Add(new Variable("Unknown", i.value));
+                i.opcode = JOpcode.SetLocal;
+            }
+        }
+    }
+
+    Dictionary<string, dynamic?> CurrentLocals => localStack.Peek();
+
+    bool TryGetLocal(string name, out dynamic? value){
+        if(CurrentLocals.TryGetValue(name, out value)){
+            return true;
+        }
+        else{
+            if(parent!=null){
+                return parent.TryGetLocal(name, out value);
+            }
+            else{
+               value = null;
+               return false;
+            }
+        }
+    }
+
+    dynamic? GetLocal(string name){
+        if(TryGetLocal(name, out dynamic? value)){
+            return value;
+        }
+        throw new Exception("Cant find local with name: "+name);
+    }
+
+    void SetLocal(string name, dynamic value){
+        if(CurrentLocals.ContainsKey(name)){
+            CurrentLocals[name] = value;
+        }
+        else{
+            if(parent!=null){
+                parent.SetLocal(name, value);
+            }
+            else{
+                throw new Exception("Cant set local with name: "+name);
+            }
+        }
+    }
+
+    public dynamic? Invoke(VM vm, params dynamic[] args){
+        var index = 0;
+        Stack<dynamic> stack = [];
+
+        if(parameters.Length != args.Length){
+            throw new Exception("Wrong number of args");
+        }
+        localStack.Push([]);
+        var currentLocals = CurrentLocals;
+        for(var i=0;i<parameters.Length;i++){
+            currentLocals.Add(parameters[i].name, args[i]);
+        }
+        foreach(var l in locals){
+            currentLocals.Add(l.name, null);
+        }
+        
         while(true){
-            if(index>=instructions.Length){
+            if(index>=instructions.Count){
+                localStack.Pop();
                 if(returnType!="void"){
                     return stack.Pop();
                 }
@@ -76,13 +130,10 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
                 stack.Push(instr.value[0]);
             }
             else if(instr.opcode == JOpcode.GetLocal){
-                stack.Push(locals[instr.value]);
+                stack.Push(GetLocal(instr.value));
             }
             else if(instr.opcode == JOpcode.SetLocal){
-                locals[instr.value] = stack.Pop();
-            }
-            else if(instr.opcode == JOpcode.CreateLocal){
-                locals.Add(instr.value, stack.Pop());
+                SetLocal(instr.value, stack.Pop());
             }
             else if(instr.opcode == JOpcode.Call){
                 if(instr.value == "Print"){
@@ -90,21 +141,24 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
                 }
                 else{
                     Function? function;
-                    if(locals.TryGetValue(instr.value, out dynamic? localValue)){
-                        function = parser.GetFunction(localValue);
+                    if(TryGetLocal(instr.value, out dynamic? local)){
+                        function = vm.GetFunction(local);
+                        if(function == null){
+                            throw new Exception("Cant find function: "+local);
+                        }
                     }
                     else{
-                        function = parser.GetFunction(instr.value);
-                    }
-                    if(function == null){
-                        throw new Exception("Cant find function: "+instr.value);
+                        function = vm.GetFunction(instr.value);
+                        if(function == null){
+                            throw new Exception("Cant find function: "+instr.value);
+                        }
                     }
                     var plength = function.parameters.Length;
                     var fargs = new dynamic[plength];
                     for(var i=plength-1;i>=0;i--){
                         fargs[i] = stack.Pop();
                     }
-                    var returnValue = function.Invoke(parser, fargs);
+                    var returnValue = function.Invoke(vm, fargs);
                     if(function.returnType!="void"){
                         stack.Push(returnValue);
                     }
@@ -148,5 +202,18 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
             }
             index++;
         }
+    }
+}
+
+class VM{
+    public List<Function> functions = [];
+
+    public void Add(Function function){
+        functions.Add(function);
+        function.Compile();
+    }
+
+    public Function? GetFunction(string name){
+        return functions.FirstOrDefault(f=> f.name== name);
     }
 }

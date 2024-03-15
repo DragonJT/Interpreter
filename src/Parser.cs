@@ -1,11 +1,14 @@
 
 
-static class Parser{
+class Parser{
+    public List<Function> functions = [];
+    public int anonymousFunctionID = 0;
+
     static List<List<Token>> SplitByComma(List<Token> tokens){
         List<List<Token>> output = [];
         var start = 0;
         for(var i=0;i<tokens.Count;i++){
-            if(tokens[i].value == ","){
+            if(tokens[i].type == TokenType.Comma){
                 output.Add(tokens[start..i]);
                 start = i+1;
             }
@@ -16,11 +19,11 @@ static class Parser{
         return output;
     }
 
-    static Instruction[] ParseExpressionInParens(Token token){
+    Instruction[] ParseExpressionInParens(Token token){
         return ParseExpression(Tokenizer.Tokenize(token.value));
     }
 
-    public static Instruction[] ParseExpression(List<Token> tokens){
+    Instruction[] ParseExpression(List<Token> tokens){
         var operators = new string[][]{["<", ">"], ["+", "-"], ["/", "*"]};
         if(tokens.Count == 0){
             throw new Exception("No tokens");
@@ -49,9 +52,23 @@ static class Parser{
             }
         }
         else if(tokens.Count == 2){
-            if(tokens[0].type == TokenType.Varname && tokens[1].type == TokenType.Parens){
+            if(tokens[0].type == TokenType.Operator && tokens[0].value == "!"){
+                return [..ParseExpression([tokens[1]]), new Instruction(JOpcode.UnaryOp, "!")];
+            }
+            else if(tokens[0].type == TokenType.Varname && tokens[1].type == TokenType.Parens){
                 var args = SplitByComma(Tokenizer.Tokenize(tokens[1].value)).Select(ParseExpression).ToArray();
-                return [.. args.SelectMany(a=>a).ToArray(), new Instruction(JOpcode.Call, tokens[0].value)];
+                return [.. args.SelectMany(a=>a), new Instruction(JOpcode.Call, tokens[0].value)];
+            }
+        }
+        else if(tokens.Count == 3){
+            if(tokens[0].type == TokenType.Varname && tokens[1].type == TokenType.Parens && tokens[2].type == TokenType.Curly){
+                var args = SplitByComma(Tokenizer.Tokenize(tokens[1].value)).Select(ParseExpression).ToArray();
+                var funcName = "__Anonymous__"+anonymousFunctionID;
+                anonymousFunctionID++;
+                functions.Add(new Function("void", funcName, [], ParseBody(tokens[2].value)));
+                return [.. args.SelectMany(a=>a), 
+                    new Instruction(JOpcode.Delegate, funcName), 
+                    new Instruction(JOpcode.Call, tokens[0].value)];
             }
         }
         foreach(var ops in operators){
@@ -68,63 +85,63 @@ static class Parser{
         throw new Exception("Unexpected tokens");
     }
 
-    static Instruction[] ParseBody(string code){
+    List<List<Token>> SplitIntoStatements(string code){
         var tokens = Tokenizer.Tokenize(code);
+        var output = new List<List<Token>>();
+        var start = 0;
+        for(var i=0;i<tokens.Count;i++){
+            if(tokens[i].type == TokenType.SemiColon){
+                output.Add(tokens[start..i]);
+                start=i+1;
+            }
+            else if(tokens[i].type == TokenType.Curly){
+                output.Add(tokens[start..(i+1)]);
+                start=i+1;
+            }
+            else if(tokens[i].type == TokenType.Colon){
+                output.Add(tokens[start..(i+1)]);
+                start=i+1;
+            }
+        }
+        output.Add(tokens[start..tokens.Count]);
+        return output;
+    }
+
+    Instruction[] ParseBody(string code){
+        var statements = SplitIntoStatements(code);
         List<Instruction> instructions = [];
-        var i = 0;
-        while(true){
-            if(i>=tokens.Count){
-                return [..instructions];
+        for(var i=0;i<statements.Count-1;i++){
+            var s = statements[i];
+            if(s[1].type == TokenType.Equals){
+                instructions.AddRange(ParseExpression(s[2..]));
+                instructions.Add(new Instruction(JOpcode.SetLocal, s[0].value));
             }
-            if(i+1<tokens.Count && tokens[i+1].value == "="){
-                var end = tokens.FindIndex(i+2, t=>t.value == ";");
-                if(end<0){
-                    throw new Exception("No end of expression");
-                }
-                instructions.AddRange(ParseExpression(tokens[(i+2)..end]));
-                instructions.Add(new Instruction(JOpcode.SetLocal, tokens[i].value));
-                i = end+1;
+            else if(s[1].type == TokenType.Colon){
+                instructions.Add(new Instruction(JOpcode.Label, s[0].value));
             }
-            else if(tokens[i].value == "return"){
-                var end = tokens.FindIndex(i+1, t=>t.value == ";");
-                if(end<0){
-                    throw new Exception("No end of expression");
-                }
-                instructions.AddRange(ParseExpression(tokens[(i+1)..end]));
-                i = end+1;
+            else if(s[0].type == TokenType.GotoIf){
+                instructions.AddRange(ParseExpressionInParens(s[1]));
+                instructions.Add(new Instruction(JOpcode.GotoIf, s[2].value));
             }
-            else if(tokens[i+1].value == ":"){
-                instructions.Add(new Instruction(JOpcode.Label, tokens[i].value));
-                i+=2;
+            else if(s[0].type == TokenType.Goto){
+                instructions.Add(new Instruction(JOpcode.Goto, s[1].value));
             }
-            else if(tokens[i].value == "goto_if"){
-                instructions.AddRange(ParseExpressionInParens(tokens[i+1]));
-                instructions.Add(new Instruction(JOpcode.GotoIf, tokens[i+2].value));
-                i+=4;
-            }
-            else if(tokens[i].value == "goto"){
-                instructions.Add(new Instruction(JOpcode.Goto, tokens[i+1].value));
-                i+=3;
-            }
-            else if(tokens[i].value == "var"){
-                var name = tokens[i+1].value;
-                var end = tokens.FindIndex(i+3, t=>t.value == ";");
-                if(end<0){
-                    throw new Exception("No end of expression");
-                }
-                var expr = ParseExpression(tokens[(i+3)..end]);
+            else if(s[0].type == TokenType.Var){
+                var name = s[1].value;
+                var expr = ParseExpression(s[3..]);
                 instructions.AddRange(expr);
                 instructions.Add(new Instruction(JOpcode.CreateLocal, name));
-                i = end+1;
             }
             else{
-                var end = tokens.FindIndex(i, t=>t.value == ";");
-                if(end<0){
-                    throw new Exception("No end of expression");
-                }
-                instructions.AddRange(ParseExpression(tokens[i..end]));
-                i = end+1;
+                instructions.AddRange(ParseExpression(s));
             }
+        }
+        var lastStatement = statements[statements.Count-1];
+        if(lastStatement.Count == 0){
+            return [..instructions];
+        }
+        else{
+            return [..instructions, ..ParseExpression(lastStatement)];
         }
     }
 
@@ -133,13 +150,12 @@ static class Parser{
         return parameterTokens.Select(p=>new Parameter(p[0].value, p[1].value)).ToArray();
     }
 
-    public static Function[] ParseFunctions(string code){
+    public Parser(string code){
         var tokens = Tokenizer.Tokenize(code);
-        List<Function> functions = [];
         var i = 0;
         while(true){
             if(i>=tokens.Count){
-                return [..functions];
+                return;
             }
             var returnType = tokens[i];
             var name = tokens[i+1];
@@ -148,5 +164,9 @@ static class Parser{
             functions.Add(new Function(returnType.value, name.value, parameters, body));
             i+=4;
         }
+    }
+
+    public Function? GetFunction(string name){
+        return functions.FirstOrDefault(f=> f.name== name);
     }
 }

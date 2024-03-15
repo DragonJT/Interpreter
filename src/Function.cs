@@ -1,4 +1,7 @@
-enum JOpcode{I32Const, F32Const, GetLocal, BinaryOp, UnaryOp, SetLocal, CreateLocal, Call, GotoIf, Label, Goto, StrConst, CharConst}
+
+enum JOpcode{I32Const, F32Const, GetLocal, BinaryOp, UnaryOp, SetLocal, CreateLocal, 
+    Call, GotoIf, Label, Goto, StrConst, CharConst, Delegate}
+
 class Instruction(JOpcode opcode, string value){
     public JOpcode opcode = opcode;
     public string value = value;
@@ -20,7 +23,7 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
     public readonly Parameter[] parameters = parameters;
     public readonly Instruction[] instructions = instructions;
 
-    public dynamic Invoke(VM vm, params dynamic[] args){
+    public dynamic? Invoke(Parser parser, params dynamic[] args){
         var index = 0;
         Stack<dynamic> stack = [];
         Dictionary<string, dynamic> locals = [];
@@ -40,7 +43,12 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
         }
         while(true){
             if(index>=instructions.Length){
-                return stack.Pop();
+                if(returnType!="void"){
+                    return stack.Pop();
+                }
+                else{
+                    return null;
+                }
             }
             var instr = instructions[index];
             if(instr.opcode == JOpcode.Label){}
@@ -61,7 +69,10 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
             else if(instr.opcode == JOpcode.StrConst){
                 stack.Push(instr.value);
             }
-            if(instr.opcode == JOpcode.CharConst){
+            else if(instr.opcode == JOpcode.Delegate){
+                stack.Push(instr.value);
+            }
+            else if(instr.opcode == JOpcode.CharConst){
                 stack.Push(instr.value[0]);
             }
             else if(instr.opcode == JOpcode.GetLocal){
@@ -78,13 +89,22 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
                     Console.WriteLine(stack.Pop());
                 }
                 else{
-                    var function = vm.GetFunction(instr.value) ?? throw new Exception("Unexpected function: "+instr.value);
+                    Function? function;
+                    if(locals.TryGetValue(instr.value, out dynamic? localValue)){
+                        function = parser.GetFunction(localValue);
+                    }
+                    else{
+                        function = parser.GetFunction(instr.value);
+                    }
+                    if(function == null){
+                        throw new Exception("Cant find function: "+instr.value);
+                    }
                     var plength = function.parameters.Length;
                     var fargs = new dynamic[plength];
                     for(var i=plength-1;i>=0;i--){
                         fargs[i] = stack.Pop();
                     }
-                    var returnValue = function.Invoke(vm, fargs);
+                    var returnValue = function.Invoke(parser, fargs);
                     if(function.returnType!="void"){
                         stack.Push(returnValue);
                     }
@@ -128,20 +148,5 @@ class Function(string returnType, string name, Parameter[] parameters, Instructi
             }
             index++;
         }
-    }
-}
-
-class VM{
-    public Dictionary<string, Function> functions = [];
-
-    public void Add(Function function){
-        functions.Add(function.name, function);
-    }
-
-    public Function? GetFunction(string name){
-        if(functions.TryGetValue(name, out Function? function)){
-            return function;
-        }
-        return null;
     }
 }

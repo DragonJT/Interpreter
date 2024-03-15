@@ -1,4 +1,7 @@
-enum TokenType{Varname, Int, Float, Curly, Square, Parens, Punctuation, DoubleQuote, SingleQuote}
+using Mono.Cecil;
+
+enum TokenType{Varname, Int, Float, Curly, Square, Parens, Operator, DoubleQuote,
+    SingleQuote, Equals, SemiColon, Colon, Comma, Goto, GotoIf, Var}
 
 class Token(string value, int start, int end, TokenType type){
     public string value = value;
@@ -8,11 +11,26 @@ class Token(string value, int start, int end, TokenType type){
 }
 
 static class Tokenizer{
+    static Token CreateVarname(string code, int start, int index, Dictionary<string, TokenType> varnameLiterals){
+        var value = code[start..index];
+        if(varnameLiterals.TryGetValue(value, out TokenType type)){
+            return new Token(value, start, index, type);
+        }
+        return new Token(value, start, index, TokenType.Varname);
+    }
+
     public static List<Token> Tokenize(string code){
         var index = 0;
         var tokens = new List<Token>();
         var open = "({[";
         var close = ")}]";
+        var specialLiterals = new Dictionary<char, TokenType> {
+             {'=', TokenType.Equals}, {';', TokenType.SemiColon}, {':', TokenType.Colon}, {',', TokenType.Comma} 
+        };
+        var varnameLiterals = new Dictionary<string, TokenType>{
+            {"goto", TokenType.Goto}, {"goto_if", TokenType.GotoIf}, {"var", TokenType.Var}
+        };
+        var operators = "+-*/<>!";
 
         loop:
         if(index>=code.Length){
@@ -28,7 +46,7 @@ static class Tokenizer{
             index++;
             while(true){
                 if(index>=code.Length){
-                    tokens.Add(new Token(code[start..index], start, index, TokenType.Varname));
+                    tokens.Add(CreateVarname(code, start, index, varnameLiterals));
                     return tokens;
                 }
                 c = code[index];
@@ -36,7 +54,7 @@ static class Tokenizer{
                     index++;
                     continue;
                 }
-                tokens.Add(new Token(code[start..index], start, index, TokenType.Varname));
+                tokens.Add(CreateVarname(code, start, index, varnameLiterals));
                 goto loop;
             }
         }
@@ -142,10 +160,16 @@ static class Tokenizer{
                 index++;
             }
         }
-        else{
-            tokens.Add(new Token(code[index].ToString(), index, index+1, TokenType.Punctuation));
+        else if(specialLiterals.TryGetValue(c, out TokenType value)){
+            tokens.Add(new Token(c.ToString(), index, index+1, value));
             index++;
             goto loop;
         }
+        else if(operators.Contains(c)){
+            tokens.Add(new Token(c.ToString(), index, index+1, TokenType.Operator));
+            index++;
+            goto loop;
+        }
+        throw new Exception("Unexpected character: "+code[index]);
     }
 }

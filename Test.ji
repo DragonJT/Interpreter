@@ -1,11 +1,28 @@
 
+void if(bool condition, Delegate body){
+    goto_if (!condition) end;
+    body();
+    end:
+}
+
+void loop(int length, Delegate body){
+    var i=0;
+    start:
+    body();
+    i=i+1;
+    goto_if (i<length) start;
+}
+
 int Main(){
     var i=0;
-    goto_if (i>10) end;
-    Print("HelloWorld");
-    end:
-    goto_if (i<10) end2;
-    Print("Boo");
-    end2:
-    return 0;
+    if(i>10){
+        Print("HelloWorld");
+    }
+    if(i<10){
+        Print("MOO");
+    }
+    loop(5){
+        Print("Boo");
+    }
+    0
 }

@@ -15,14 +15,16 @@ void loop(DelegateParameter p, int length, Delegate body){
 
 int Main(){
     var i=0;
-    if(i>10){
+    if(i>10){ 
         Print("HelloWorld");
     }
     if(i<10){
         Print("MOO");
     }
-    loop(j, 5){
-        Print(j);
+    loop(j, 3){
+        loop(k, 3){
+            Print(j+k);
+        }
     }
     0
 }

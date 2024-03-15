@@ -1,5 +1,4 @@
 
-
 class Parser{
     Stack<Function> functionStack = [];
     public List<Function> functions = [];
@@ -22,6 +21,18 @@ class Parser{
 
     Instruction[] ParseExpressionInParens(Token token){
         return ParseExpression(Tokenizer.Tokenize(token.value));
+    }
+
+    Function CreateAnonymousFunction(string returnType, Variable[] parameters, List<Token> body){
+        var anonymousFunc = "__Anonymous__"+anonymousFunctionID;
+        anonymousFunctionID++;
+        
+        var current = new Function(functionStack.Peek(), returnType, anonymousFunc, parameters);
+        functionStack.Push(current);
+        current.instructions.AddRange(ParseBody(body));
+        functionStack.Pop();
+        functions.Add(current);
+        return current;
     }
 
     Instruction[] ParseExpression(List<Token> tokens){
@@ -53,10 +64,7 @@ class Parser{
             }
         }
         else if(tokens.Count == 2){
-            if(tokens[0].type == TokenType.Operator && tokens[0].value == "!"){
-                return [..ParseExpression([tokens[1]]), new Instruction(JOpcode.UnaryOp, "!")];
-            }
-            else if(tokens[0].type == TokenType.Varname && tokens[1].type == TokenType.Parens){
+            if(tokens[0].type == TokenType.Varname && tokens[1].type == TokenType.Parens){
                 var args = SplitByComma(Tokenizer.Tokenize(tokens[1].value)).Select(ParseExpression).ToArray();
                 return [.. args.SelectMany(a=>a), new Instruction(JOpcode.Call, tokens[0].value)];
             }
@@ -64,29 +72,43 @@ class Parser{
         else if(tokens.Count == 3){
             if(tokens[0].type == TokenType.Varname && tokens[1].type == TokenType.Parens && tokens[2].type == TokenType.Curly){
                 var argTokens = SplitByComma(Tokenizer.Tokenize(tokens[1].value));
+                argTokens.Add(Tokenizer.Tokenize(tokens[2].value));
                 var callFunc = GetFunction(tokens[0].value);
                 if(callFunc!=null){
-                    List<Variable> parameters = [];
-                    for(int i=0;i<callFunc.parameters.Length;i++){
-                        if(callFunc.parameters[i].type == "DelegateParameter"){
-                            parameters.Add(new Variable("Unknown", argTokens[i][0].value));
-                            argTokens[i] = [new Token("0", 0, 0, TokenType.Int)];
+                    List<Instruction[]> args = [];
+                    HashSet<int> parameterDelegates = [];
+                    Dictionary<int, Variable[]> anonymousParameters = [];
+                    Dictionary<int, string> anonymousReturnType = [];
+                    var pid = 0;
+
+                    for(var i=0;i<callFunc.parameters.Length;i++){
+                        if(callFunc.parameters[i].type is DelegateType delegateType){
+                            var parameters = delegateType.Parameters;
+                            anonymousParameters.Add(i, parameters);
+                            anonymousReturnType.Add(i, delegateType.returnType);
+                            foreach(var p in parameters){
+                                if(char.IsDigit(p.name[0])){
+                                    var index = int.Parse(p.name);
+                                    parameterDelegates.Add(index);
+                                    p.name = argTokens[index][0].value;
+                                }
+                            }
                         }
                     }
-                    var args = argTokens.Select(ParseExpression).ToArray();
-                    var anonymousFunc = "__Anonymous__"+anonymousFunctionID;
-                    anonymousFunctionID++;
-                    
-                    var current = new Function(functionStack.Peek(), "void", anonymousFunc, [..parameters]);
 
-                    functionStack.Push(current);
-                    current.instructions.AddRange(ParseBody(tokens[2].value));
-                    functionStack.Pop();
-                    functions.Add(current);
-
-                    return [.. args.SelectMany(a=>a), 
-                        new Instruction(JOpcode.Delegate, anonymousFunc), 
-                        new Instruction(JOpcode.Call, tokens[0].value)];
+                    for(var i=0;i<argTokens.Count;i++){
+                        if(!parameterDelegates.Contains(i)){
+                            if(anonymousParameters.TryGetValue(pid, out Variable[]? parameters)){
+                                var anonymousFunc = CreateAnonymousFunction(anonymousReturnType[pid], parameters, argTokens[i]);
+                                args.Add([new Instruction(JOpcode.Delegate, anonymousFunc.name)]);
+                            }
+                            else{
+                                args.Add(ParseExpression(argTokens[i]));
+                            }
+                            pid++;
+                        }
+                    }
+                    return [..args.SelectMany(a=>a), new Instruction(JOpcode.Call, callFunc.name)];
                 }
                 
             }
@@ -99,14 +121,13 @@ class Parser{
                 return [..left, ..right, new Instruction(JOpcode.BinaryOp, tokens[index].value)];
             }
         }
-        foreach(var t in tokens){
-            Console.WriteLine(t.value);
+        if(tokens[0].type == TokenType.Operator && tokens[0].value == "!"){
+            return [..ParseExpression(tokens[1..]), new Instruction(JOpcode.UnaryOp, "!")];
         }
         throw new Exception("Unexpected tokens");
     }
 
-    List<List<Token>> SplitIntoStatements(string code){
-        var tokens = Tokenizer.Tokenize(code);
+    List<List<Token>> SplitIntoStatements(List<Token> tokens){
         var output = new List<List<Token>>();
         var start = 0;
         for(var i=0;i<tokens.Count;i++){
@@ -127,8 +148,8 @@ class Parser{
         return output;
     }
 
-    Instruction[] ParseBody(string code){
-        var statements = SplitIntoStatements(code);
+    Instruction[] ParseBody(List<Token> tokens){
+        var statements = SplitIntoStatements(tokens);
         List<Instruction> instructions = [];
         for(var i=0;i<statements.Count-1;i++){
             var s = statements[i];
@@ -165,9 +186,20 @@ class Parser{
         }
     }
 
-    static Variable[] ParseParameters(string code){
+    Instruction[] ParseBody(string code){
+        return ParseBody(Tokenizer.Tokenize(code));
+    }
+
+    public static Variable ParseParameter(List<Token> tokens){
+        if(tokens[0].type == TokenType.Parens){
+            return new Variable(new DelegateType(tokens[0].value, tokens[1].value), tokens[2].value);
+        }
+        return new Variable(new PrimitiveType(tokens[0].value), tokens[1].value);
+    }
+
+    public static Variable[] ParseParameters(string code){
         var parameterTokens = SplitByComma(Tokenizer.Tokenize(code));
-        return parameterTokens.Select(p=>new Variable(p[0].value, p[1].value)).ToArray();
+        return parameterTokens.Select(ParseParameter).ToArray();
     }
 
     public Parser(string code){

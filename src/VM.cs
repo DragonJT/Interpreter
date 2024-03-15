@@ -11,8 +11,24 @@ class Instruction(JOpcode opcode, string value){
     }
 }
 
-class Variable(string type, string name){
-    public string type = type;
+interface IType{}
+
+class UnknownType:IType{ 
+}
+
+class DelegateType(string parametersCode, string returnType):IType{
+    public readonly string parametersCode = parametersCode;
+    public readonly string returnType = returnType;
+
+    public Variable[] Parameters => Parser.ParseParameters(parametersCode);
+}
+
+class PrimitiveType(string type):IType{
+    public readonly string type = type;
+}
+
+class Variable(IType type, string name){
+    public IType type = type;
     public string name = name;
 }
 
@@ -34,7 +50,7 @@ class Function(Function? parent, string returnType, string name, Variable[] para
         }
         foreach(var i in instructions){
             if(i.opcode == JOpcode.CreateLocal){
-                locals.Add(new Variable("Unknown", i.value));
+                locals.Add(new Variable(new UnknownType(), i.value));
                 i.opcode = JOpcode.SetLocal;
             }
         }

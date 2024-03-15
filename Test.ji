@@ -1,11 +1,11 @@
 
-void if(bool condition, Delegate body){
+void if(bool condition, ()void body){
     goto_if (!condition) end;
     body();
     end:
 }
 
-void loop(DelegateParameter p, int length, Delegate body){
+void loop(int length, (int 0)void body){
     var i=0;
     start:
     body(i);
@@ -13,18 +13,25 @@ void loop(DelegateParameter p, int length, Delegate body){
     goto_if (i<length) start;
 }
 
-int Main(){
-    var i=0;
-    if(i>10){ 
-        Print("HelloWorld");
-    }
-    if(i<10){
-        Print("MOO");
-    }
+void while(()bool condition, ()void body){
+    goto_if (!condition()) end;
+    start:
+    body();
+    goto_if (condition()) start;
+    end:
+}
+
+int Main(){  
     loop(j, 3){
         loop(k, 3){
             Print(j+k);
         }
+    }
+    Print("===========================");
+    var i=0;
+    while(i<5){
+        Print(i);
+        i=i+1;
     }
     0
 }
